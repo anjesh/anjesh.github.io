@@ -3,17 +3,22 @@ permalink:        pretty
 relative_permalinks: true
 
 # Setup
-title:            Poole
-tagline:          The Jekyll Butler
-url:              http://getpoole.com
+title:            The Explorer
+tagline:          Never satiated
+url:              anjesh.github.io
 paginate:         1
 baseurl:          /
 author:
-  name:           Mark Otto
-  url:            https://twitter.com/mdo
-  email:          markdotto@gmail.com
+  name:           Anjesh Tuladhar
+  url:            https://twitter.com/anjesh
+  email:          anjeshtuladhar@gmail.com
 
 # Custom vars
 version:          1.0.0
 github:
-  repo:           https://github.com/poole/poole
+  repo:           https://github.com/anjesh/anjesh.github.io
+
+pages_list:       
+  Home: '/'
+  About: '/about'
+  Archive: '/archive'

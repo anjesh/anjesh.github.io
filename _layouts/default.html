@@ -9,8 +9,12 @@
       <header class="masthead">
         <h3 class="masthead-title">
           <a href="{{ site.baseurl }}" title="Home">{{ site.title }}</a>
-          <small>{{ site.tagline }}</small>
-        </h3>
+          <div>
+          {% for page in site.pages_list %}
+            <small><a href="{{ page[1]  }}">{{ page[0] }}</a></small>
+          {% endfor %}
+          </div>
+          </h3>
       </header>
 
       <main>
@@ -18,9 +22,7 @@
       </main>
 
       <footer class="footer">
-        <small>
-          &copy; <time datetime="{{ site.time | date_to_xmlschema }}">{{ site.time | date: '%Y' }}</time>. All rights reserved.
-        </small>
+        <a rel="license" href="http://creativecommons.org/licenses/by/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by/4.0/88x31.png" /></a><small>Except where otherwise noted, content on this site is licensed under a Creative Commons Attribution 4.0 International license.</small>   
       </footer>
     </div>
 
