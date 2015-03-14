@@ -15,21 +15,22 @@ People complained that they are not receiving emails in their hotmail account fr
 I created a simple script `testmail.php` to test the hotmail rejection. 
 
 {% highlight php %}
-   if($argv[1] == "testhotmail") {
-     $to = "a@hotmail.com";
-   } else {
-     $to = "a@yipl.com.np";
-   }
-   $subject = "This is subject";
-   $message = "This is simple text message.";
-   $header = "From:info@abc.com \r\n";
-   $retval = mail ($to,$subject,$message,$header);
-   if( $retval == true ) {
-      echo "Message sent successfully...";
-   }
-   else {
-      echo "Message could not be sent...";
-   }
+<?php
+if($argv[1] == "testhotmail") {
+  $to = "a@hotmail.com";
+} else {
+  $to = "a@yipl.com.np";
+}
+$subject = "This is subject";
+$message = "This is simple text message.";
+$header = "From:info@abc.com \r\n";
+$retval = mail ($to,$subject,$message,$header);
+if( $retval == true ) {
+  echo "Message sent successfully...";
+}
+else {
+  echo "Message could not be sent...";
+}
 {% endhighlight %}
 
 Running `php testmail.php` to send email to other domain than hotmail, results in the following message in `\var\log\exim_mainlog` file and i got the message in the spam. Here spam is not important, delivery is. 
