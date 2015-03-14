@@ -17,7 +17,7 @@ Jan 14. I couldn't walk properly for the next 7 days. 27KM in [4hr 38min](http:/
 
 #### Stripe: Captured the Flag
 
-Aug 12. Still remember the night when I completed the final step few minutes before the deadline. I am still proudly wearing that tshirt. The [problems](https://github.com/stripe-ctf/stripe-ctf-2.0) were amazingly interesting and challenging.
+Aug 29. Still remember the night when I completed the final step few minutes before the deadline. I am still proudly wearing that tshirt. The [problems](https://github.com/stripe-ctf/stripe-ctf-2.0) were amazingly interesting and challenging.
 
 <blockquote class="twitter-tweet" lang="en"><p>I captured the flag in the <a href="https://twitter.com/stripe">@Stripe</a> CTF challenge! Follow my progress: <a href="https://t.co/7DUgNkGG">https://t.co/7DUgNkGG</a> <a href="https://twitter.com/hashtag/stripectf?src=hash">#stripectf</a> Can&#39;t believe it :) Awesome feeling</p>&mdash; anjesh (@anjesh) <a href="https://twitter.com/anjesh/status/240871544061046784">August 29, 2012</a></blockquote>
 
