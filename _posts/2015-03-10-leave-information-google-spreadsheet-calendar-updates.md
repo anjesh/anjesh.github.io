@@ -5,25 +5,24 @@ title: Push your organisation leave information to Google Calendar for organisat
 
 TL;DR
 
-You can use google spreadsheet to record your leave information and then use script editor (use the code below) to push your leave record as event in the google calendar. The calendar could then be shared with people to inform them about the leave status or any other events.
+You can use google spreadsheet to record your leave information and then use script editor (use the code below) to push your leave record as event to the google calendar. The calendar could then be shared with people to inform them about the leave status or any other events.
 
 <hr>
 
-We are a decent size company of 30-35 people and people are not aware of who is on leave when. There are lots of HR tools available - some open source, some paid services. We are still manageable without systems though the tools would have surely helped. 
+We are a decent size company of 30-35 people and people are not aware of who is on leave when. There are lots of HR tools available - some open source, some paid services. We are still manageable without systems though the tools would have helped. 
 
 Some of my colleagues were complaining that they are not aware of each other leaves and hence had to ask others to know about their whereabouts. The easiest solution is to maintain the list in google spreadsheet and push those information to google calendar. Share that calendar to the organisation users and done. Now someone has to enter the information in the spreadsheet and the leave information appears as an event in the calendar. 
 
-Thanks to Google, the resources are easily available. Took around 2 hours to come up with good looking code that solved the basic problem. It not only creates the leave information but also allows to edit it. 
+It took around 2 hours to come up with good looking code that solved the basic problem. It not only creates the leave information but also allows to edit it. 
 
-Here are step by step instructions to set Google Spreadsheet to Google Calendar
+Here are step by step instructions to implement Google Spreadsheet records to Google Calendar events
 
-* Create Google Spreadsheet with the following columns [Date, Staff name, Leave Type, Full Day?, First Half?, Leave Form Filled?, Calendar Set, Event Id]
+* Create Google Spreadsheet with the following columns [`Date`, `Staff name`, `Leave Type`, `Full Day?`, `First Half?`, `Leave Form Filled?`, `Calendar Set`, `Event Id`]
 ![Spreadsheet columns](/public/leave-spreadsheet-calendar/spreadsheet-start.png "Spreadsheet columns")
-* Update the column name as you deem necessary and change the column index in the code below. The logic here is people can take full-day or half-day leave. If it's half-day, then it could be first half or second half. Then we also encourge people to fill leave form so that they can see if they have approved their leave or not before taking leave. 
+* Update the column name as you deem necessary. If you add new columns, then you might have to change the column index in the code below, update few codes here and there. The logic here is people can take full-day or half-day leave. If it's half-day, then it could be first half or second half. Then we also encourge people to fill leave form so that they can see if they have approved their leave or not before taking leave. 
 * Open `Tools > Script Editor` and paste the code below in the editor.
   * Update your google calendar id in the pasted code inside `pushToCalendar` function
   * Go to your google calendar, select `Calendar Settings` and find `Calendar Address`
-
 ![Calendar](/public/leave-spreadsheet-calendar/calendar-id.png "Calendar id example")  
 * Select `Select function > onOpen` and click Run
 ![Run onOpen](/public/leave-spreadsheet-calendar/run-onopen-function.png "Run onOpen Function")
