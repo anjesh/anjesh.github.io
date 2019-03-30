@@ -1,0 +1,414 @@
+---
+title: "Nepal FDI Data Exploration"
+author: "Anjesh"
+date: "`r format(Sys.time(), tz='Asia/Kathmandu')`"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    toc_float: true
+    toc_depth: 4
+    code_folding: hide
+    highlight: tango
+    includes:
+       in_header: ../GA_Script.html
+---
+
+<style type="text/css">
+
+.gt-table { 
+  font-size: 10px;
+}
+</style>
+
+# Background
+
+Republica published a story that [Lawmakers in Nepal](https://myrepublica.nagariknetwork.com/news/lawmakers-for-putting-agriculture-sector-in-negative-list-for-fdi/) are planning to put several sectors in negative list for FDI. They might or mightn't have done some analysis on what the FDI data says. In case they haven't, i thought i might take a look at that.
+
+Fortunately data is maintained in the [website of Department of Industry](http://www.doind.gov.np/), but unfortunately most of their data is in PDF as usual. I created CSV file from PDF and [cleaned](data/doi.companies-clean.csv) that up - the scrapping and cleanup process is for another day.
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(gt)
+
+options(scipen = 999) # to show the numbers instead of scientific notations in ggplot2 graphs
+options(warn = -1)
+```
+
+# Data Loading
+
+First we need to load the clean data and do basic cleanup and transformation. The clean data set already has segregated the Local and Foreign share in the company into separate columns. 
+
+```{r data-loading, warning=FALSE}
+df.companies <- read.csv(here::here("doi","data","doi.companies-clean.csv"), stringsAsFactors = FALSE)
+df.companies$total_capital <- as.numeric(df.companies$total_capital)
+```
+
+Total industries: `r count(df.companies)$n`
+
+# Data analysis
+
+## Companies Registration Trend
+
+We have the year column ready for quick charts. So first we can quickly see in which year industries are registering.
+
+### Year and Monthwise Registration
+
+Lets create a table with the count of registration based on year and month. 
+
+```{r table-companies-year-month}
+df.companies %>% 
+  group_by(register_year, register_month) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(register_month = as.character(register_month)) %>% 
+  bind_rows(group_by(., register_year) %>% 
+              summarise(register_month = "Total", 
+                        n = sum(n)))%>%   
+  mutate(register_month = factor(register_month, levels = c(1:12,"Total"))) %>% 
+  spread(register_month, n) %>% 
+  gt() %>% 
+  
+  fmt_missing(columns = 1:13,
+              missing_text = "") %>% 
+  cols_label(
+    register_year = "Registration Year (Nepali)",
+  ) %>% 
+  tab_spanner(
+    label = "Month (Nepali)",
+    columns = vars(1,2,3,4,5,6,7,8,9,10,11,12)
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )
+```
+
+### Registration Trend
+
+Lets quickly draw a chart showing the trend of industry registration.
+
+```{r chart-registration-trend, warning=FALSE, message=FALSE}
+registration_years <- unique(df.companies$register_year)
+df.companies %>% 
+  group_by(register_year) %>% 
+  count() %>% 
+  ggplot(aes(x=register_year, y=n)) +
+  geom_bar(stat="identity") +
+  scale_x_continuous(labels = registration_years, breaks = registration_years) +
+  geom_smooth(method="auto", se=F) +
+  labs(x="Registration Year",y="") +
+  theme(axis.text.x = element_text(angle = 75, vjust = 0.5, size = 7.5))
+```
+
+We see that there's spark spike of company registration in 2049 and declines in subsequent years. It would be interesting to see why there's such a remarkable increase in the registration. I would be happy to see some researcher looking into the year 2049 BS and see what happened in Nepal.
+
+The trend is in increase mode since 2064. 
+
+## Registratration Trend with FDI
+
+Our plan is to explore FDI. We have already segregated the FDI share for each industry. Lets see the trend of FDI share in the registered industries. 
+
+```{r chart-registration-trend-fdi}
+df.companies %>% 
+  filter(total_capital > 0) %>% 
+  mutate(has_fdi = ifelse(foreign_percent>0,"Yes","No")) %>% 
+  group_by(has_fdi, register_year) %>% 
+  count() %>% 
+  ggplot(aes(x = register_year, y = n, fill = has_fdi)) +
+  geom_bar(stat= "identity") +
+  scale_x_continuous(labels = registration_years, breaks = registration_years) +
+  labs(x="Registration Year",y="",fill="Has FDI?") +
+  theme(axis.text.x = element_text(angle = 75, vjust = 0.5, size = 7.5),
+        legend.position = c(0.92,0.85))
+
+```
+
+We see that FDI started flowing in from 2069 only and significant number of industries are FDI invested. It's not clear from the data whether Nepal received FDI before that or not. 
+
+But we will limit our discussion to this data set only. It doesn't give full picture of FDI, but we want to see whether the Lawmakers thoughts on banning FDI justifies or not. 
+
+So we will limit the analysis from 2069 onwards only.
+
+## FDI and Non-FDI industry exploration
+
+The following chart considers the industry data from 2069 onwards. Here we are trying to see where each industry (of either small, medium or large scale) resides in the chart of employment against total capital.
+
+```{r chart-fdi-non-fdi}
+df.companies %>% 
+  filter(register_year >=2069) %>% 
+  filter(total_capital > 0) %>% 
+  mutate(has_fdi = ifelse(foreign_percent>0,"Yes","No")) %>% 
+  ggplot(aes(x=total_capital, y=employment, color=scale)) +
+  geom_point(alpha = 0.2) +
+  scale_x_log10(label = comma) +
+  scale_y_log10() +
+  facet_grid(has_fdi ~ .) +
+  labs(x = "Total Capital", y = "Employment")
+
+```
+
+At quick glance, we see that most of the FDI industries are of small scale. Though some of the small scaled industries (blue dots) are also on the region of large scale industries (red dots). This raises the question on data authenticity, on the definition of scale. 
+
+## FDI Share breakdown
+
+There are industries with as little as 2% FDI as well with 100% FDI. Lets see the breakdown based on FDI percentage share.
+
+```{r table-fdi-share-percent-count}
+df.companies %>% 
+  filter(foreign_percent > 0) %>% 
+  mutate(foreign_percent_range = cut(foreign_percent, 
+                                     breaks = c(0,11,49,99.99,100),
+                                     labels = c("10 or less than 10%","11 to 49%", "50 to less than 100%", "100%"),
+                                     include.lowest = TRUE)) %>% 
+  group_by(foreign_percent_range) %>% 
+  count() %>% 
+  mutate(percent = n/sum(.$n)) %>% 
+  ungroup() %>% 
+  gt() %>% 
+  cols_label(
+    foreign_percent_range = "FDI % share ",
+    n = "Number of Registered Industries",
+    percent = "Percentage of Industries"
+  ) %>% 
+  fmt_percent(
+    columns = vars(percent)
+  )
+```
+
+82% of registered industries are 100% FDI. So we can further narrow our analysis to 100% FDI invested data only.
+
+## Exploring 100% FDI industries
+
+Further analysis will be carried to those industries with 100% FDI.
+
+### Scatterplot of industries based on scale
+
+```{r chart-100fdi-industry-scatter}
+df.companies.mean <- df.companies %>% 
+  filter(foreign_percent == 100) %>% 
+  group_by(scale) %>% 
+  summarise(
+    employment = mean(employment, na.rm = TRUE),
+    total_capital = mean(total_capital, na.rm = TRUE)
+  )
+
+df.companies %>% 
+  filter(foreign_percent == 100) %>% 
+  ggplot(aes(x = total_capital, y = employment, color = scale)) +
+  geom_point(alpha = 0.2, size = 1) +
+  geom_point(data = df.companies.mean, size = 3, alpha = 1) +
+  scale_x_log10(label = comma) +
+  scale_y_log10() +
+  labs(x = "Total Capital", y = "Employment")
+```
+
+The big dot is the mean for each category.
+
+### Spread of employment numbers for 100% FDI industries
+
+The red dot is the mean employment for different scale. To interpret the boxplot below, read the [following](https://www.wellbeingatschool.org.nz/information-sheet/understanding-and-interpreting-box-plots).
+
+```{r chart-box-plot-employment}
+df.companies %>% 
+  filter(foreign_percent == 100) %>% 
+  ggplot(aes(x=scale, y=employment)) +
+  geom_boxplot(alpha=0.5) +
+  geom_jitter(alpha=0.05) +
+  stat_summary(fun.y=mean, colour="darkred", geom="point", 
+               shape=18, size=3,show_guide = FALSE) +
+  scale_y_log10()
+```
+
+### Spread of total capital for 100% FDI industries
+
+The red dot is the mean capital for different scale.
+
+```{r }
+df.companies %>% 
+  filter(foreign_percent == 100) %>% 
+  ggplot(aes(x=scale, y=total_capital)) +
+  geom_boxplot(alpha=0.5) +
+  geom_jitter(alpha=0.05) +
+  stat_summary(fun.y=mean, colour="darkred", geom="point", 
+               shape=18, size=3,show_guide = FALSE) +
+  scale_y_log10(label = comma)
+```
+
+## Sector-wise analysis
+
+Again we are limiting the analysis to 100% FDI industries. Lets see the summary of sector wise breakdown of 100% FDI industries.
+
+### Sector-wise summary table
+
+```{r table-sectorwise-summary}
+df.companies %>% 
+  filter(foreign_percent == 100) %>% 
+  group_by(category) %>% 
+  summarise(industry = n(), 
+            employment = sum(employment, na.rm = TRUE), 
+            capital = sum(total_capital, na.rm = TRUE)) %>% 
+  mutate(category = tolower(category)) %>% 
+  bind_rows(group_by(.) %>% 
+              summarise(category = "Total",
+                        industry = sum(industry),
+                        employment = sum(employment),
+                        capital = sum(capital))
+            ) %>% 
+  mutate(capital_per_capita = capital/industry,
+         employment_per_capita = employment/industry) %>% 
+  gt() %>% 
+  cols_label(
+    category = "Sector",
+    industry = "No of Industry",
+    employment = "Total",
+    employment_per_capita = "Per industry",
+    capital = "Total",
+    capital_per_capita = "Per industry"
+  ) %>% 
+  cols_move(
+    columns = vars(employment_per_capita),
+    after = vars(employment)
+  ) %>% 
+  tab_spanner(
+    label = "Employment",
+    columns = vars(employment, employment_per_capita)
+  ) %>% 
+  tab_spanner(
+    label = "Capital",
+    columns = vars(capital, capital_per_capita)
+  ) %>% 
+  fmt_number(
+    columns = vars(capital_per_capita, capital, employment, employment_per_capita)
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+## Sector-wise scatterplot with mean
+
+The big dot is the mean for each category.
+
+```{r}
+df.companies.category.mean <- df.companies %>% 
+  filter(foreign_percent == 100) %>% 
+  group_by(category) %>% 
+  summarise(
+    employment = mean(employment, na.rm = TRUE),
+    total_capital = mean(total_capital, na.rm = TRUE)
+  )
+
+df.companies %>% 
+  filter(foreign_percent == 100) %>% 
+  ggplot(aes(x = total_capital, y = employment, color = tolower(category))) +
+  geom_point(alpha = 0.1, size = 1) +
+  geom_point(data = df.companies.category.mean, size = 3) +
+  scale_x_log10(label = comma) +
+  scale_y_log10() +
+  labs(x = "Total Capital", y = "Employment", color = "Sector")
+```      
+
+## District-wise summary
+
+Here's district-wise summary for 100% FDI industries.
+
+```{r table-districtwise-summary}
+df.companies %>% 
+  filter(foreign_percent == 100) %>% 
+  group_by(district) %>% 
+  summarise(industries = n(), 
+            employment = sum(employment, na.rm = TRUE), 
+            capital = sum(total_capital, na.rm = TRUE)) %>% 
+  arrange(desc(employment), desc(capital)) %>% 
+  gt() %>% 
+  cols_label(
+    district = "District",
+    industries = "No of Industries",
+    employment = "Total Employment",
+    capital = "Total Capital"
+  ) %>% 
+  fmt_number(
+    columns = vars(capital)
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )
+```
+
+### FDI registered in Valley and elsewhere
+
+Here we want to see how much industries are concentrated in valley and the rest of Nepal. 
+
+```{r table-valleywise-summary}
+df.companies %>% 
+  filter(foreign_percent == 100) %>% 
+  mutate(district_group = ifelse(tolower(district) %in% c("kathmandu","lalitpur","bhaktapur"), "Kathmandu Valley", "Rest")) %>% 
+  group_by(district_group) %>% 
+  summarise(industries = n(), 
+            employment = sum(employment, na.rm = TRUE), 
+            capital = sum(total_capital, na.rm = TRUE)) %>% 
+  arrange(desc(employment), desc(capital)) %>% 
+  mutate(capital_percent = capital/sum(capital),
+         employment_percent = employment/sum(employment),) %>% 
+  gt() %>% 
+  cols_label(
+    district_group = "Valley and Rest",
+    industries = "No of Industries",
+    employment = "Total",
+    employment_percent = "% Share",
+    capital = "Total",
+    capital_percent = "% Share"
+  ) %>% 
+  cols_move(
+    columns = vars(employment_percent),
+    after = vars(employment)
+  ) %>% 
+  tab_spanner(
+    label = "Employment",
+    columns = vars(employment, employment_percent)
+  ) %>% 
+  tab_spanner(
+    label = "Capital",
+    columns = vars(capital, capital_percent)
+  ) %>% 
+  fmt_number(
+    columns = vars(capital)
+  ) %>% 
+  fmt_percent(
+    columns = vars(capital_percent, employment_percent)
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )
+```
+
+As expected, valley represents bulk of FDI.
+
+<br><br>
+
+Thank you for reading through. Any questions or suggestions? Please ask me <a href="https://twitter.com/anjesh">@twitter</a>
+
+<div class="tocify-extend-page" data-unique="tocify-extend-page" style="height: 10;"></div>
