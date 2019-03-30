@@ -405,9 +405,9 @@ df.companies %>%
   )
 ```
 
+<br>
 As expected, valley represents bulk of FDI.
-
-<br><br>
+<br>
 
 Thank you for reading through. Any questions or suggestions? Please ask me <a href="https://twitter.com/anjesh">@twitter</a>
 
