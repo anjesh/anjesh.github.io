@@ -1,7 +1,7 @@
 ---
 title: "Nepal FDI Data Exploration"
 author: "Anjesh"
-date: "`r format(Sys.time(), tz='Asia/Kathmandu')`"
+date: "2019-03-30"
 output: 
   html_document:
     toc: true
@@ -409,6 +409,6 @@ df.companies %>%
 As expected, valley represents bulk of FDI.
 <br>
 
-Thank you for reading through. Any questions or suggestions? Please ask me <a href="https://twitter.com/anjesh">@twitter</a>
+Thank you for reading. Any questions or suggestions? Please ask me <a href="https://twitter.com/anjesh">@twitter</a>
 
 <div class="tocify-extend-page" data-unique="tocify-extend-page" style="height: 10;"></div>

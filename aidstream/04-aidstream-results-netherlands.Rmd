@@ -1,0 +1,845 @@
+---
+title: "AidStream IATI Result Element Analysis for Netherland based Organisations"
+author: "Anjesh"
+date: "2019-03-22"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    toc_float: true
+    toc_depth: 4
+    code_folding: hide
+    highlight: tango
+    includes:
+       in_header: ../GA_Script.html
+---
+
+<style type="text/css">
+
+.gt-table { 
+  font-size: 10px;
+}
+</style>
+
+# Background
+
+In this analysis, we are using all the `result` data of all the published activities of Netherlands (NL) based [publishers](https://iatiregistry.org/publisher). 
+
+For those new to IATI Standard, please refer to [Result page](http://reference.iatistandard.org/203/activity-standard/iati-activities/iati-activity/result/) to understand the content of `result` element.
+
+# Setup
+
+First we need to load the required packages. 
+
+```{r message=FALSE, warning=FALSE}
+library(glue)
+library(RPostgreSQL)
+library(tidyverse)
+library(viridis)
+library(lubridate)
+library(jsonlite)
+library(scales)
+library(skimr)
+library(gt)
+
+cl.result.types <- read.csv(url("http://reference.iatistandard.org/203/codelists/downloads/clv1/codelist/ResultType.csv"), stringsAsFactors = FALSE)
+cl.result.types.labels <- setNames(as.character(cl.result.types$name), cl.result.types$code)
+
+cl.indicator.measures <- read.csv(url("http://reference.iatistandard.org/203/codelists/downloads/clv1/codelist/IndicatorMeasure.csv"))
+cl.indicator.measures.labels <- setNames(as.character(cl.indicator.measures$name),
+                                         cl.indicator.measures$code)
+
+options(scipen = 999) # to show the numbers instead of scientific notations in ggplot2 graphs
+options(warn = -1)
+```
+
+
+# Data Preparation
+
+## Data Import
+
+The following code imports necessary fields from the database. For simplicity, I saved the results from database to [RDS](https://stat.ethz.ch/R-manual/R-devel/library/base/html/readRDS.html) file and loaded from RDS file for quick import.
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+organisations.all.rds <- here::here("aidstream","04-sessions","organisations.all.rds")
+activities.all.rds <- here::here("aidstream","04-sessions","activities.all.rds")
+results.all.rds <- here::here("aidstream","04-sessions","results.all.rds")
+
+if(file.exists(organisations.all.rds) & 
+   file.exists(activities.all.rds) &
+   file.exists(results.all.rds)) {
+  df.organizations.all <- readRDS(organisations.all.rds)
+  df.activities.all <- readRDS(activities.all.rds)
+  df.results.all <- readRDS(results.all.rds)
+  } else {
+  dbconn <- dbConnect(dbDriver("PostgreSQL"), 
+                      host="localhost", 
+                      dbname="aidstream_prod_local", 
+                      user="postgres")
+  fetch_query <- function(conn, query) {
+    resultset <- dbSendQuery(conn, query)
+    fetch(resultset, n=-1)
+  }
+  df.organizations.all <- fetch_query(dbconn, "select id, user_identifier, name, reporting_org, country,
+                                  published_to_registry, created_at, updated_at 
+                                  from organizations where country='NL';")
+  df.activities.all <- fetch_query(dbconn, glue("select id, identifier, title, organization_id, 
+                        activity_status, activity_date, recipient_country, recipient_region,
+                        sector, published_to_registry,
+                        created_at, updated_at 
+                        from activity_data where
+                        published_to_registry = 1 and 
+                        organization_id in ({paste0(df.organizations.all$id, collapse=\",\")});"))
+  df.results.all <- fetch_query(dbconn, glue("select id, activity_id, result, created_at
+                           from activity_results where
+                           activity_id in ({paste0(df.activities.all$id, collapse=\",\")});"))  
+  saveRDS(df.organizations.all, file=organisations.all.rds)
+  saveRDS(df.activities.all, file=activities.all.rds)
+  saveRDS(df.results.all, file=results.all.rds)
+  }
+df.summary <- df.results.all %>% 
+  left_join(df.activities.all, by=c("activity_id"="id")) %>% 
+  left_join(df.organizations.all, by=c("organization_id"="id"))
+```
+
+Total Organisations: `r count(distinct(df.summary, organization_id))$n`
+
+Total unique Activities: `r count(distinct(df.summary, activity_id))$n`
+
+## Preparing `result` element
+
+First we need to convert JSON string to R list before we can further process the data.
+
+There can be multiple `indicator`s within a given `result` and multiple `baseline` and multiple `period` elements within an `indicator`. Lets extract the count of the indicators, baselines and periods mentioned inside each result element to see how many indicators, baselines and periods are reported under each result. 
+
+```{r}
+results.rds <- here::here("aidstream","04-sessions","results.rds")
+if(file.exists(results.rds)) {
+  df.results <- readRDS(results.rds)
+  } else {
+    df.results.all <- df.results.all %>% 
+      mutate(result_json = map(result, fromJSON))
+    get_indicator_count <- function(result_json) {
+      return(nrow(result_json$indicator))
+    }
+    get_indicator_baseline_count <- function(result_json) {
+      sum(map_int(result_json$indicator$baseline, nrow))
+    }
+    get_indicator_period_count <- function(result_json) {
+      sum(map_int(result_json$indicator$period, nrow))
+    }
+    
+    get_indicators <- function(result_json) {
+      df <- data.frame(
+        indicator_title = map_chr(result_json$indicator$title, function(.x) {
+          .x$narrative[[1]]$narrative[1]
+        }),
+        indicator_measure = as.character(result_json$indicator$measure),
+        indicator_ascending = as.character(result_json$indicator$ascending),
+        stringsAsFactors = FALSE
+      )
+      df$baseline = result_json$indicator$baseline
+      df$period = result_json$indicator$period
+      df
+    }
+    
+    df.results <- df.results.all %>% 
+      transmute(id, activity_id,
+                result_title = map_chr(result_json, function(.x) {
+                  .x$title$narrative[[1]]$narrative[1]
+                }),
+                result_type = map_chr(result_json, "type"),
+                indicators_count = map_int(result_json, get_indicator_count),
+                indicators_baseline_count = map_int(result_json, get_indicator_baseline_count),
+                indicators_period_count = map_int(result_json, get_indicator_period_count),
+                indicator = map(result_json, get_indicators)
+      )
+    saveRDS(df.results, file = results.rds)
+    }
+```
+
+### `Result` quick summary
+
+```{r quick-stats-results}
+skim_with(integer = list(hist = NULL, p0=NULL, p25=NULL, p50=NULL, p75=NULL, p100=NULL),
+          character = list(min = NULL, max = NULL))
+df.results %>% 
+  select(starts_with("result")) %>% 
+  skim() %>% 
+  pander()
+```
+
+## Preparing `indicator` sub-element
+
+We create a new dataframe for `indicator`s only. 
+
+```{r prepare-indicator}
+df.indicators <- df.results %>% 
+  unnest(indicator)
+```
+
+### `indicator` quick summary
+
+```{r quick-stats-indicator}
+skim_with(integer = list(hist = NULL, p0=NULL, p25=NULL, p50=NULL, p75=NULL, p100=NULL))
+df.indicators %>% 
+  select(indicator_measure, indicator_ascending, indicator_title,
+         result_title, result_type) %>% 
+  skim() %>% 
+  pander()
+```
+
+## Preparing `baseline` and `period` sub-elements
+
+Simiarly we prepare dataframes for `period`s and `baseline`s. 
+
+```{r prepare-period-baseline, warning=FALSE, message=FALSE}
+get_baselines <- function(baseline_json) {
+  df <- data.frame(
+    baseline_year = as.character(baseline_json$year),
+    baseline_value = as.character(baseline_json$value),
+    baseline_comment = baseline_json$comment[[1]]$narrative[[1]]$narrative[1],
+    stringsAsFactors = FALSE
+  )
+  df
+}
+
+get_periods <- function(period_json) {
+  df <- data.frame(
+    period_start = map_chr(period_json$period_start, "date"),
+    period_end = map_chr(period_json$period_end, "date"),
+    period_target = map_chr(period_json$target, "value"),
+    period_actual = map_chr(period_json$actual, "value"),
+    stringsAsFactors = FALSE
+  )
+  df
+}
+
+df.indicators <- df.indicators %>% 
+  mutate(baseline_df = map(baseline, get_baselines),
+         period_df = map(period, get_periods))
+
+df.baselines <- df.indicators %>% 
+  unnest(baseline_df)
+
+df.periods <- df.indicators %>% 
+  unnest(period_df)
+
+df.periods$period_start <- parse_date_time(df.periods$period_start, "y-m-d", tz = "GMT")
+df.periods$period_end <- parse_date_time(df.periods$period_end, "y-m-d", tz = "GMT")
+df.periods$period_target <- as.numeric(df.periods$period_target)
+df.periods$period_actual <- as.numeric(df.periods$period_actual)
+```
+
+### `baseline` quick summary
+
+```{r quick-stats-baseline}
+skim_with(integer = list(hist = NULL, p0=NULL, p25=NULL, p50=NULL, p75=NULL, p100=NULL))
+df.baselines %>% 
+  select(-ends_with("count"),-ends_with("id"), -baseline, -starts_with("period")) %>% 
+  skim() %>% 
+  pander(caption = "Baseline Summary")
+```
+
+### `period` quick summary
+
+```{r quick-stats-period}
+skim_with(numeric = list(hist = NULL, p0=NULL, p25=NULL, p50=NULL, p75=NULL, p100=NULL, sd=NULL),
+          POSIXct = list(median = NULL, min=NULL, max=NULL))
+df.periods %>% 
+  select(-ends_with("count"),-ends_with("id")) %>% 
+  skim() %>% 
+  pander()
+```
+
+
+Now we can proceed with the analysis.
+
+# Data analysis
+
+We see in `indicator` summary that there are `r count(df.indicators)$n[1]` `indicator`s mentioned in `r count(df.results)$n[1]` `result`s. There's an average of `r round(count(df.indicators)$n[1]/count(df.results)$n[1], digits=2)` `indicator`s in a given `result`. Lets see which `result`s have large number of `indicator`s.
+
+```{r}
+df.results %>% 
+  group_by(indicators_count) %>% 
+  count() %>% 
+  ungroup() %>% 
+  gt() %>% 
+  cols_label(
+     indicators_count = "Unique count of indicators in each <Result> element",
+     n = "Count of Results containing the given number of indicators"
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+We can see that there are 2 `result` elements, that contains as many as 32 `indicator`s. That makes `result` very long and complex. But we see that majority of `result` elements contain one `indicator` only. Ideally a given result can have multiple relevant indicators. 
+
+There are activities which has number of `result` element with the same result metadata. 
+
+```{r count-result_title}
+get_identifier <- function(identifier_text) {
+  id_json <- fromJSON(identifier_text)
+  id_json$iati_identifier_text
+}
+  
+df.results %>% 
+  group_by(result_title, activity_id) %>% 
+  count() %>% 
+  filter(n>1) %>% 
+  arrange(desc(n)) %>% 
+  ungroup() %>% 
+  head(10) %>% 
+  left_join(df.activities.all, by=c("activity_id"="id")) %>% 
+  left_join(df.organizations.all, by=c("organization_id"="id")) %>% 
+  mutate(iati_identifier = map_chr(identifier, get_identifier)) %>%
+  select(name, iati_identifier, result_title, n) %>% 
+  group_by(name) %>% 
+  gt() %>% 
+  cols_label(
+    iati_identifier = "IATI Identifier",
+    result_title = "Result Title",
+    n = "Number of Result element in a given activity"
+  ) %>% 
+  cols_hide(
+    columns = vars(activity_id)
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+## Number of `result` element based on `result/type`
+
+```{r chart-result_type}
+df.results %>% 
+  group_by(result_type) %>% 
+  count() %>% 
+  select(result_type, n) %>% 
+  ggplot(aes(x=result_type, y=n)) +
+  geom_bar(stat = "identity", fill="gray") +
+  coord_flip() +
+  scale_x_discrete(labels = cl.result.types.labels) +
+  geom_text(aes(label=n), hjust=-0.1, size=3) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank()) +
+  labs(x="Result Type", y="Count of <Result> Element")
+```
+
+We see that most of the `result` are Output-based and Outcome-based in the published activities. 
+
+## `indicator` subelement count based on `indicator/measure`
+
+[`indicator/measure`](http://reference.iatistandard.org/203/activity-standard/iati-activities/iati-activity/result/indicator/#iati-activities-iati-activity-result-indicator-measure) defines the unit of measure in which the value is reported in the given indicator i.e. in [`baseline/value`](http://reference.iatistandard.org/203/activity-standard/iati-activities/iati-activity/result/indicator/baseline/) and values for [`period/target/value`](http://reference.iatistandard.org/203/activity-standard/iati-activities/iati-activity/result/indicator/period/target/) and `period/actual/value`.
+
+```{r table-indicator_measure}
+
+df.indicators %>% 
+  group_by(indicator_measure) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(label = cl.indicator.measures.labels[indicator_measure]) %>% 
+  select(indicator_measure, label, n) %>% 
+  mutate(label = replace_na(label,"-")) %>% 
+  gt() %>% 
+  cols_label(
+    label = "Indicator Measure",
+    n = "Count of <indicator> sub-element"
+  ) %>% 
+  cols_hide(
+    columns = vars(indicator_measure)
+  ) %>% 
+  tab_footnote(
+    footnote = "Missing indicator-measure in <indicator>",
+    locations = cells_data(
+      columns = vars(label),
+      rows = label == "-"
+    )
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+We see that most of the `indicator/measure` are of quantitative nature i.e. Unit and Percentage. There are 5 defined codes for [`indicator/measure`](http://reference.iatistandard.org/203/codelists/IndicatorMeasure/). There's missing value for `indicator/measure` as well. 
+
+## `result/type` vs `indicator/measure`
+
+Lets see what `indicator/measure`s are used for each `result/type`.
+
+```{r image-indicator_measure-report_type}
+df.indicators %>% 
+  group_by(result_type, indicator_measure) %>% 
+  count() %>% 
+  spread(indicator_measure, n, fill=0) %>% 
+  gather(indicator_measure, n, -result_type) %>% 
+  ggplot(aes(x=result_type, y=indicator_measure)) +
+  geom_tile(aes(fill=n), colour = "gray") +
+  geom_text(aes(label=n)) +
+  scale_x_discrete(labels = cl.result.types.labels) +
+  scale_y_discrete(labels = c(cl.indicator.measures.labels, V1="Missing*")) +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(x="Result Type", y="Indicator Measure", fill="Count of Indicators")
+```
+
+We see that bulk of quantitative measures (Unit and Percentage) are reported for Outcome and Outcome. So we can focus further analysis to quantitative measures only.
+
+## Exploring `baseline` element
+
+### Number of `baseline`s reported by `baseline/year`
+
+Now we dive into [`baseline`](http://reference.iatistandard.org/203/activity-standard/iati-activities/iati-activity/result/indicator/baseline/) sub-element of `indicator`. From the `baseline` summary above, we see that majority of `baseline/year` values are empty.
+
+```{r chart-baseline_year-indicators_count}
+df.baselines %>% 
+  group_by(baseline_year) %>% 
+  count() %>% 
+  ungroup() %>% 
+  gt() %>% 
+  cols_label(
+    baseline_year = "Baseline Year",
+    n = "Number of baselines reported for that year"
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+We see that there are few issues with the year as well like 217. Lets identify which organisation published 217 year in their `result/indicator/baseline` data.
+
+```{r table-incorrect_baseline_year}
+df.baselines %>% 
+  filter(indicator_measure==1 & baseline_year == 217) %>% 
+  select(activity_id) %>% 
+  left_join(df.activities.all, by=c("activity_id"="id")) %>% 
+  left_join(df.organizations.all, by=c("organization_id"="id")) %>% 
+  mutate(iati_identifier = fromJSON(identifier)$iati_identifier_text) %>% 
+  select(name, iati_identifier) %>% 
+  gt() %>% 
+  cols_label(
+    name = "Organisation",
+    iati_identifier = "IATI Identifier"
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+http://preview.iatistandard.org/index.php?url=https%3A//aidstream.org/files/xml/warchildholland-activities.xml shows 217 in the data.
+
+### Exploring Unit Quantitative `baseline/value`s
+
+For simplicity, we will explore the `baseline/value` for unit `indicator/measure` only. As per standard, `baseline/value` is mandatory for quantiative `indicator/measure` i.e. for both Unit[1] and Percentage[2].
+
+Lets see how many `baseline/value` are present.
+
+```{r table-baseline_value-presence}
+df.baselines %>% 
+  filter(indicator_measure==1) %>% 
+  group_by(baseline_value) %>% 
+  count() %>% 
+  mutate(baseline_value_present = ifelse(trimws(baseline_value)=="" | is.na(baseline_value),FALSE,TRUE)) %>% 
+  group_by(baseline_value_present) %>% 
+  summarize(n=sum(n)) %>% 
+  ungroup() %>% 
+  mutate(Percentage = round(100*n/sum(n), digits=2)) %>% 
+  gt() %>% 
+  cols_label(
+    baseline_value_present = "Baseline value present?",
+    n = "Count of baseline value",
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+
+### `baseline/@value` type 
+
+We see only 48% of the reported `baseline/value` are present for Unit measure. Now we need to see if all those reported values are numeric or not. These values should be numeric as per [standard](http://reference.iatistandard.org/203/activity-standard/iati-activities/iati-activity/result/indicator/baseline/).
+
+> The @value must be included for non-qualitative measures.
+> The @value should be a valid number for all non-qualitative measures.
+
+```{r warning=FALSE, message=FALSE}
+df.baselines %>% 
+  filter(indicator_measure==1) %>% 
+  group_by(baseline_value) %>% 
+  count() %>% 
+  filter(baseline_value !="") %>% 
+  mutate(baseline_value_number = as.numeric(baseline_value)) %>% 
+  mutate(baseline_value_type = ifelse(is.na(baseline_value_number),"Text","Number")) %>% 
+  group_by(baseline_value_type) %>% 
+  summarise(n=sum(n)) %>% 
+  ungroup() %>% 
+  gt() %>% 
+  cols_label(
+    baseline_value_type = "Baseline Value Type",
+    n = "Count of Baseline Value",
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+We see that there are 31 instances where `baseline/value` are mentioned in textual form. 
+
+#### `baseline/value` vs `baseline/year`
+
+Lets plot the `baseline/value` against `baseline/year` and for Unit quantitative measure only i.e. `indicator-measure` = 1[Unit].
+
+```{r image-baseline_value-baseline_year, message=FALSE, warning=FALSE}
+df.baselines %>% 
+  filter(indicator_measure==1 & baseline_year != 217) %>% 
+  group_by(baseline_value, baseline_year, result_type) %>% 
+  count() %>% 
+  filter(baseline_value !="") %>% 
+  mutate(baseline_value_number = as.numeric(baseline_value)) %>% 
+  mutate(baseline_value_type = ifelse(is.na(baseline_value_number),"Text","Number")) %>% 
+  filter(baseline_value_type == "Number") %>% 
+  ungroup() %>% 
+  mutate(result_type = factor(cl.result.types.labels[result_type], levels = cl.result.types.labels)) %>% 
+  ggplot(aes(x=baseline_year,y=baseline_value_number, color=result_type)) +
+  geom_point(alpha = 0.5) +
+  scale_y_log10(label=comma) +
+  labs(x="Baseline year", y = "Baseline value", color="Result Type")
+```
+
+The log10 scale was used as the `baseline/value` ranges from 0 to 10,000,000. It's not clear whether we can have future `baseline/value`, but apparently there are `baseline/value` for 2019 and 2020.
+
+```{r chart-baseline_value-boxplot, warning=FALSE, message=FALSE}
+df.baselines %>% 
+  filter(indicator_measure==1) %>% 
+  group_by(baseline_value, baseline_year, result_type) %>% 
+  count() %>% 
+  filter(baseline_value !="") %>% 
+  mutate(baseline_value_number = as.numeric(baseline_value)) %>% 
+  mutate(baseline_value_type = ifelse(is.na(baseline_value_number),"Text","Number")) %>% 
+  filter(baseline_value_type == "Number") %>% 
+  ungroup() %>% 
+  mutate(result_type = factor(cl.result.types.labels[result_type], levels = cl.result.types.labels)) %>% 
+  ggplot(aes(x=baseline_year,y=baseline_value_number)) +
+  geom_boxplot(alpha=0.5) +
+  scale_y_log10(label=comma) +
+  stat_summary(fun.y=mean,shape=4,color='red',geom='point') +
+  labs(x="Baseline year", y = "Baseline value", color="Result Type")
+```
+
+From 2014 to 2017, medium (represented by and mean (represented by red x) of `baseline/@value`s lie between 10 and 1000.
+
+#### High value `baseline/value` result
+There are few `baseline/@value` beyond 1,000,000. Lets list those values. It would help the organisations to verify and correct those large numbers if those are typos.
+
+```{r table-baseline_values-1000000+, warning=FALSE, message=FALSE}
+df.baselines %>% 
+  filter(indicator_measure==1) %>% 
+  mutate(baseline_value_number = as.numeric(baseline_value)) %>% 
+  filter(baseline_value_number >1000000) %>% 
+  select(result_title, indicator_title, baseline_comment, baseline_value) %>% 
+  mutate(baseline_value = as.numeric(baseline_value)) %>% 
+  arrange(desc(baseline_value)) %>% 
+  gt() %>% 
+  cols_label(
+    result_title = "Result Title",
+    indicator_title = "Indicator Title",
+    baseline_comment = "Baseline Comment",
+    baseline_value = "Baseline Value"
+  ) %>% 
+  fmt_number(
+    columns = vars(baseline_value),
+    decimals = 0
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  ) 
+```
+
+These could be correct numbers, but it would be good to verify the big numbers at least once.
+
+## Exploring `period` element
+
+```{r}
+df.periods %>% 
+  filter(indicator_measure != "") %>% 
+  mutate(indicator_measure = paste0(indicator_measure, "-", cl.indicator.measures.labels[indicator_measure])) %>% 
+  mutate(result_type = paste0(result_type, "-", cl.result.types.labels[result_type])) %>% 
+  janitor::tabyl(result_type, indicator_measure) %>% 
+  janitor::adorn_totals(c("col","row")) %>% 
+  gt() %>% 
+  cols_label(
+    result_type =  "Result Type"
+  )
+  # tab_spanner(
+  #   label = "Indicator Measure",
+  #   columns = vars(`1-Nominal`, Ordinal, Percentage, Qualitative, Unit)
+  # )
+  
+```
+
+### `period-start` vs `period-end`
+
+Lets create an scatter plot of all the points against `period-start` and `period-end` dates.
+
+```{r}
+df.periods %>% 
+  mutate(result_type = factor(cl.result.types.labels[result_type], levels = cl.result.types.labels)) %>% 
+  ggplot(aes(x=period_start, y=period_end)) +
+  geom_point(alpha = 0.4, aes(color=result_type)) +
+  labs(x="Period Start Date", y="Period End Date",color="Result Type")
+```
+
+We see that there are certain `period` which  has very long duration, mostly those  periods, which end after 2030. See top-left corner of the above chart. 
+
+Lets list those periods.
+
+#### List of long period duration `result`
+
+```{r}
+df.periods %>% 
+  filter(year(period_end) > 2030) %>% 
+  left_join(df.activities.all, by=c("activity_id"="id")) %>% 
+  left_join(df.organizations.all, by=c("organization_id"="id")) %>% 
+  select(name, identifier, result_title, period_start, period_end) %>% 
+  mutate(iati_identifier = map_chr(identifier, get_identifier)) %>% 
+  group_by(name, iati_identifier) %>% 
+  gt() %>% 
+  cols_label(
+    result_title = "Result Title",
+    period_start = "Period Start Date",
+    period_end = "Period End Date"
+  ) %>% 
+  cols_hide(
+    columns = "identifier"
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+It's only "Stichting CARE Nederland" that seems to have longer periods duration. We can verify those numbers from the [XML file](http://preview.iatistandard.org/index.php?url=https%3A//aidstream.org/files/xml/carenederland-activities.xml) as well. It's worth to verify these dates at least once to ensure that we are projecting the right data to the audience at large.
+
+### `period/target` vs `period/actual`
+
+Lets see how many `target` and `actual` values are present in `period`.
+
+```{r table-target-actual-presence}
+df.periods %>% 
+  mutate(is_target_present = !is.na(period_target),
+         is_actual_present = !is.na(period_actual)) %>% 
+  group_by(is_target_present, is_actual_present) %>% 
+  count() %>% 
+  ungroup() %>% 
+  spread(is_actual_present, n) %>% 
+  gt() %>% 
+  tab_spanner(
+    label = "Is Actual Present?",
+    columns = vars(FALSE, TRUE)
+  ) %>% 
+  cols_label(
+    is_target_present = "Is Target Present?"
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+Lets narrow our analysis to unit quantitative measure only, i.e. `indicator/measure` = 1.
+
+```{r}
+df.periods %>% 
+  filter(indicator_measure==1) %>% 
+  mutate(is_target_present = !is.na(period_target),
+         is_actual_present = !is.na(period_actual)) %>% 
+  group_by(is_target_present, is_actual_present) %>% 
+  count() %>% 
+  spread(is_actual_present, n) %>% 
+  ungroup() %>% 
+  gt() %>% 
+  tab_spanner(
+    label = "Is Actual Present?",
+    columns = vars(FALSE, TRUE)
+  ) %>% 
+  cols_label(
+    is_target_present = "Is Target Present?"
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )  
+```
+
+Now lets plot 4958 points of `actual` and `target` values in scatterplot.
+
+```{r image-target-actual, fig.height=5, fig.width=7, warning=FALSE}
+df.periods %>% 
+  filter(indicator_measure==1) %>% 
+  mutate(is_target_present = !is.na(period_target),
+         is_actual_present = !is.na(period_actual)) %>% 
+  filter(is_target_present == TRUE & is_actual_present == TRUE) %>% 
+  mutate(result_type = factor(cl.result.types.labels[result_type], levels = cl.result.types.labels)) %>% 
+  ggplot(aes(x=as.numeric(period_target), y=as.numeric(period_actual), color=result_type)) +
+  geom_point(alpha=0.5) +
+  geom_rug(alpha=0.1) +
+  scale_y_log10(oob=squish_infinite) +
+  scale_x_log10(oob=squish_infinite) +
+  labs(x = "Target value", y="Actual value",color="Result Type")
+```
+
+
+There's lot of points. 
+
+Lets see these points separately for each `result/type`
+
+```{r image-target-actual-facet, fig.height=5}
+df.periods %>% 
+  filter(indicator_measure==1) %>% 
+  mutate(is_target_present = !is.na(period_target),
+         is_actual_present = !is.na(period_actual)) %>% 
+  filter(is_target_present == TRUE & is_actual_present == TRUE) %>% 
+  mutate(period_target_number = as.numeric(period_target), 
+         period_actual_number = as.numeric(period_actual)) %>% 
+  filter(period_target_number>0 & period_actual_number>0) %>% 
+  mutate(percent_change = (period_actual_number-period_target_number)/period_target_number) %>% 
+  mutate(result_type = factor(cl.result.types.labels[result_type], levels = cl.result.types.labels)) %>% 
+  ggplot(aes(x=period_target_number, y=period_actual_number, color=result_type)) +
+  geom_point(alpha=0.3) +
+  scale_y_log10(oob=squish_infinite) +
+  scale_x_log10(oob=squish_infinite) +
+  facet_grid(result_type ~ .) +
+  labs(x = "Target value", y="Actual value") +
+  theme(
+    legend.position = "none"
+  )
+```
+
+Here we see that target and actual values are heavily mentioned for outputs and outcomes. It would be good to 
+
+### Percent change between `target` and `actual` values
+
+```{r}
+
+df.periods %>% 
+  filter(indicator_measure==1) %>% 
+  mutate(is_target_present = !is.na(period_target),
+         is_actual_present = !is.na(period_actual)) %>% 
+  filter(is_target_present == TRUE & is_actual_present == TRUE) %>% 
+  mutate(period_target_number = as.numeric(period_target), 
+         period_actual_number = as.numeric(period_actual)) %>% 
+  filter(period_target_number>0 & period_actual_number>0) %>% 
+  mutate(percent_change = 100*(period_actual_number-period_target_number)/period_target_number) %>% 
+  mutate(percent_change_bin = ifelse(percent_change >=1000, "more than 1000% increase",
+                                     ifelse(percent_change >=100, 
+                                            "100% to 1000% increase",
+                                            ifelse(percent_change <=0, 
+                                                   "Negative change", "0 to 100% in increase")))
+         ) %>% 
+  ggplot(aes(x=period_target_number, y=period_actual_number, color = percent_change_bin)) +
+  geom_point(alpha=0.5) +
+  scale_y_log10(oob=squish_infinite) +
+  scale_x_log10(oob=squish_infinite) +
+  labs(x = "Target value", y = "Actual value", color = "Percent Change")
+```
+
+### List of `target` and `actual` with more than 1000% increase
+
+```{r table-1000+-percent-increase}
+df.periods %>% 
+  filter(indicator_measure==1) %>% 
+  left_join(df.activities.all, by=c("activity_id"="id")) %>% 
+  left_join(df.organizations.all, by=c("organization_id"="id")) %>% 
+  mutate(is_target_present = !is.na(period_target),
+         is_actual_present = !is.na(period_actual)) %>% 
+  filter(is_target_present == TRUE & is_actual_present == TRUE) %>% 
+  mutate(period_target_number = as.numeric(period_target), 
+         period_actual_number = as.numeric(period_actual)) %>% 
+  filter(period_target_number>0 & period_actual_number>0) %>% 
+  mutate(percent_change = 100*(period_actual_number-period_target_number)/period_target_number) %>% 
+  filter(abs(percent_change) >= 1000) %>% 
+  select(name, result_title, period_target, period_actual, percent_change) %>% 
+  group_by(name) %>% 
+  gt() %>% 
+  cols_label(
+    result_title = "Result Title",
+    period_target = "Target Value",
+    period_actual = "Actual Value",
+    percent_change = "Percent Increase"
+  ) %>% 
+  fmt_number(
+    columns = vars(percent_change),
+    decimals = 2
+  ) %>% 
+  fmt_number(
+    columns = vars(period_target, period_actual),
+    decimals = 0
+  ) %>% 
+  tab_style(
+    style = cells_styles(
+      text_size = px(12)
+    ),
+    locations = cells_data(
+      columns = everything()
+    )
+  )
+```
+
+<br><br>
+
+Thank you for reading. Any questions or suggestions? Please ask me <a href="https://twitter.com/anjesh">@twitter</a>
+
+<div class="tocify-extend-page" data-unique="tocify-extend-page" style="height: 0;"></div>
