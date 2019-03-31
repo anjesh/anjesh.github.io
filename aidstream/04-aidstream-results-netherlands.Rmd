@@ -21,6 +21,10 @@ output:
 }
 </style>
 
+TL;DR 
+
+A trimmed version of this analysis (without code) is published in <a href="https://blog.yipl.com.np/aidstream-result-data-analysis-for-netherlands-based-organisations-4240ca228a57">medium</a>.
+
 # Background
 
 In this analysis, we are using all the `result` data of all the published activities of Netherlands (NL) based [publishers](https://iatiregistry.org/publisher). 

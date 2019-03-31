@@ -21,6 +21,10 @@ output:
 }
 </style>
 
+TL;DR 
+
+A trimmed version of this analysis (without code) is published in <a href="https://medium.com/@anjesh/fdi-investment-in-nepal-4ae3fd326635">medium</a>.
+
 # Background
 
 Republica published a story that [Lawmakers in Nepal](https://myrepublica.nagariknetwork.com/news/lawmakers-for-putting-agriculture-sector-in-negative-list-for-fdi/) are planning to put several sectors in negative list for FDI. They might or mightn't have done some analysis on what the FDI data says. In case they haven't, i thought i might take a look at that.
@@ -410,5 +414,8 @@ As expected, valley represents bulk of FDI.
 <br>
 
 Thank you for reading. Any questions or suggestions? Please ask me <a href="https://twitter.com/anjesh">@twitter</a>
+<br>
+
+> A trimmed version of this analysis (without code) is published in <a href="https://medium.com/@anjesh/fdi-investment-in-nepal-4ae3fd326635">medium</a>.
 
 <div class="tocify-extend-page" data-unique="tocify-extend-page" style="height: 10;"></div>
