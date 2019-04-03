@@ -104,10 +104,12 @@ registration_years <- unique(df.companies$register_year)
 df.companies %>% 
   group_by(register_year) %>% 
   count() %>% 
+  modelr::add_predictions(loess(n ~ register_year, data = .), "prediction") %>% 
+  mutate(prediction = ifelse(register_year<2046,NA,prediction)) %>% 
   ggplot(aes(x=register_year, y=n)) +
   geom_bar(stat="identity") +
   scale_x_continuous(labels = registration_years, breaks = registration_years) +
-  geom_smooth(method="auto", se=F) +
+  geom_line(aes(y=prediction), linetype = "longdash", color = "blue", size = 0.3) +
   labs(x="Registration Year",y="") +
   theme(axis.text.x = element_text(angle = 75, vjust = 0.5, size = 7.5))
 ```
